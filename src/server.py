@@ -16,6 +16,8 @@ logging.info('Starting server')
 assert os.getenv('LDAP_SERVER'), "Environment variable 'LDAP_SERVER' missing!"
 assert os.getenv('LDAP_BASE_DN'), "Environment variable 'LDAP_BASE_DN' missing!"
 assert os.getenv('RADIUS_SECRET'), "Environment variable 'RADIUS_SECRET' missing!"
+assert os.getenv('LDAP_FILTER_DN'), "Environment variable 'LDAP_FILTER_DN' missing!"
+assert os.getenv('LDAP_FILTER'), "Environment variable 'LDAP_FILTER' missing!"
 
 
 class SimpleLdapProxy(server.Server):
@@ -34,15 +36,20 @@ class SimpleLdapProxy(server.Server):
                 os.environ['LDAP_BASE_DN'].format(user_name=user_name),
                 pkt.PwDecrypt(pkt['User-Password'][0]),
             )
+            result = ldap_client.search_s(os.environ['LDAP_FILTER_DN'], ldap.SCOPE_SUBTREE, os.environ['LDAP_FILTER'].format(user_name=user_name))
+            if len(result) == 0:
+              logging.info('User "%s" not found in %s', user_name, os.environ['LDAP_FILTER'])
+              reply = self.CreateReplyPacket(pkt, **{'Reply-Message': 'User not found by filter'})
+              reply.code = packet.AccessReject
+            else:
+              logging.info('User "%s" successfully logged in', user_name)
+              reply = self.CreateReplyPacket(pkt)
+              reply.code = packet.AccessAccept
         except Exception as exc:
             error_message = exc.__class__.__name__
             logging.exception('Unable to authenticate user "%s" in LDAP: %s', user_name, error_message)
             reply = self.CreateReplyPacket(pkt, **{'Reply-Message': error_message})
             reply.code = packet.AccessReject
-        else:
-            logging.info('User "%s" successfully logged in', user_name)
-            reply = self.CreateReplyPacket(pkt)
-            reply.code = packet.AccessAccept
 
         self.SendReplyPacket(pkt.fd, reply)
 
